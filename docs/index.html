@@ -211,6 +211,8 @@ const HELP_V='help';
 const SNEAK_FLOWERS=[{x:300,y:175,r:42},{x:300,y:430,r:42},{x:520,y:300,r:46},{x:680,y:165,r:40},{x:680,y:440,r:40}];
 const SNEAK_CLOUDS=[{x:415,y0:300,amp:210,sp:1.05,ph:0,r:30},{x:600,y0:300,amp:230,sp:.8,ph:2,r:32},{x:745,y0:300,amp:180,sp:1.35,ph:1,r:28}];
 const SAFE_R=85, BEAM_W=.17, START={x:70,y:300}, TEAM_R=150, TEAM_BONUS=1.3;
+/* Пчёлка игрока бьёт дальше и сильнее; помощники бьют вполсилы и только жуков в радиусе HELP_R от неё. */
+const LEAD_R=220, HELP_R=170, HELPER_DMG=.5;
 const PORTS=ORDER.map((id,k)=>({id,x:46+k*76,y:H-46,r:30}));
 const SUPBTN={x:W-62,y:H-62,r:42};
 
@@ -333,6 +335,7 @@ function startLevel(i){
     if(L.mode==='boss'){G.bossQ=L.bosses.map(b=>({...b}));G.bossesLeft=L.bosses.length;G.spawnT=4;}
     if(L.mode==='horde'){G.left=100000;G.spawned=0;G.spawnT=1;}
     if(i===1&&owned.length<2)G.tip='Позови Папу и Сестру в улье за мёд.';
+    else if(owned.length>1&&!save.seenLeadTip){G.tip='Помощники летят за тобой. Веди их к жукам!';G.tipT=8;save.seenLeadTip=true;persist();}
   }
   initMotes(L.amb);
   scene='play';paused=false;P.down=false;hide();
@@ -390,7 +393,7 @@ function waveLogic(dt){
   G.spawnT-=dt;if(G.queue.length&&G.spawnT<=0){spawnEnemy(G.queue.shift());G.spawnT=Math.max(.35,1-G.wave*.15);}
 }
 /* Чем больше пчёл в команде и чем дальше уровень, тем крепче жуки: иначе с полной командой слишком легко. */
-function toughness(){return (1+.35*(G.bees.length-1))*(1+.08*G.i);}
+function toughness(){return (1+.15*(G.bees.length-1))*(1+.08*G.i);}
 function makeBoss(k){
   const m=toughness();
   if(k==='bear')return{kind:'bear',hp:180*m,max:180*m,sp:30,r:58,honey:30,bite:5,reach:140,x:W+70,y:330,state:'walk',swCd:2.5,st:0,face:-1,flash:0,eat:false,stun:0};
@@ -458,19 +461,22 @@ function updBees(dt){
       if(kx||ky){const l=Math.hypot(kx,ky);dvx=kx/l*sp;dvy=ky/l*sp;}
       else if(P.down){const dx=P.x-b.x,dy=P.y-b.y,l=Math.hypot(dx,dy);if(l>4){const v=Math.min(sp,l*6);dvx=dx/l*v;dvy=dy/l*v;}}
     }else{
+      /* Помощники держатся строем у пчёлки игрока и бьют только жуков рядом с ней: вести команду должен игрок. */
       const fallen=G.bees.find(o=>o.down>0);
-      const t=nearest(b,tg,700);
-      if(fallen&&Math.hypot(fallen.x-b.x,fallen.y-b.y)<260){const dx=fallen.x-b.x,dy=fallen.y-b.y,l=Math.hypot(dx,dy)||1;dvx=dx/l*sp;dvy=dy/l*sp;}
-      else if(t){const dx=t.x-b.x,dy=t.y-b.y,l=Math.hypot(dx,dy)||1,want=d.kind==='spikes'?t.r+20:170,f=l>want+15?1:(l<want-25?-1:0),wob=Math.sin(G.t*1.3+b.ph)*45;
-        dvx=dx/l*sp*.85*f-dy/l*wob;dvy=dy/l*sp*.85*f+dx/l*wob;
-        if(cb&&cb!==b){const cx=cb.x-b.x,cy=cb.y-b.y,cl=Math.hypot(cx,cy);if(cl>TEAM_R*.9){dvx+=cx/cl*sp*.35;dvy+=cy/cl*sp*.35;}}}
-      else if(cb){const a=G.t*1.2+k*2.1,fx=cb.x+Math.cos(a)*62,fy=cb.y+Math.sin(a)*46,dx=fx-b.x,dy=fy-b.y,l=Math.hypot(dx,dy)||1,v=Math.min(sp,l*3);dvx=dx/l*v;dvy=dy/l*v;}
+      const lead=cb&&cb.down<=0?cb:b,t=nearest(lead,tg,HELP_R);
+      const slot=k<G.ctrl?k:k-1,side=slot?1:-1,fx=lead.x-lead.face*38,fy=lead.y+side*48;
+      if(fallen&&Math.hypot(fallen.x-b.x,fallen.y-b.y)<200){const dx=fallen.x-b.x,dy=fallen.y-b.y,l=Math.hypot(dx,dy)||1;dvx=dx/l*sp;dvy=dy/l*sp;}
+      else if(t&&d.kind==='spikes'){const dx=t.x-b.x,dy=t.y-b.y,l=Math.hypot(dx,dy)||1;if(l>t.r+18){dvx=dx/l*sp*.8;dvy=dy/l*sp*.8;}}
+      else{const dx=fx-b.x,dy=fy-b.y,l=Math.hypot(dx,dy)||1,v=Math.min(sp,l*4);dvx=dx/l*v;dvy=dy/l*v;}
+      if(cb&&cb!==b&&cb.down<=0){const cx=cb.x-b.x,cy=cb.y-b.y,cl=Math.hypot(cx,cy);if(cl>HELP_R){dvx=cx/cl*sp;dvy=cy/cl*sp;}}
     }
     const m=Math.min(1,dt*12);b.vx+=(dvx-b.vx)*m;b.vy+=(dvy-b.vy)*m;b.x+=b.vx*dt;b.y+=b.vy*dt;
     b.x=Math.max(18,Math.min(W-18,b.x));b.y=Math.max(18,Math.min(H-18,b.y));if(Math.abs(b.vx)>12)b.face=b.vx>0?1:-1;
     if(b.wet>0)return;
-    b.cd-=dt;const mult=s.dmg*(b.together?TEAM_BONUS:1);
-    if(d.kind==='shot'){const t2=nearest(b,tg,G.mode==='sneak'?70:440);
+    const helper=k!==G.ctrl,lead=G.bees[G.ctrl];
+    b.cd-=dt;const mult=s.dmg*(b.together?TEAM_BONUS:1)*(helper?HELPER_DMG:1);
+    if(d.kind==='shot'){const pool=helper&&lead&&lead.down<=0?tg.filter(e=>Math.hypot(e.x-lead.x,e.y-lead.y)-e.r<HELP_R):tg;
+      const t2=nearest(b,pool,G.mode==='sneak'?70:(helper?HELP_R+60:LEAD_R));
       if(t2&&b.cd<=0){b.cd=s.rate;b.face=t2.x>b.x?1:-1;
         shoot(b,Math.atan2(t2.y-b.y,t2.x-b.x),{sp:d.bs,r:d.br+(b.together?1:0),dmg:mult,big:d.dmg>=3,gold:b.together});
         if(d.dmg>=3)SFX.big();else if(G.t-G.lastSnd>.09){G.lastSnd=G.t;SFX.shot();}}}
@@ -729,7 +735,7 @@ function helpScreen(back){scene='help';helpBack=back||'hive';
   const row=(img,html)=>`<div><img src="art/${img}.webp" alt="">${html}</div>`;
   show(`<div class="card wide"><h2>Как играть</h2><div class="help">
   ${row('bee-me','<span><b>Веди пчёлку пальцем.</b> Она жалит сама, ближайшего жука.</span>')}
-  ${row('bee-dad','<span><b>Нажми на портрет внизу</b>, чтобы управлять другой пчёлкой. Остальные бьются сами.</span>')}
+  ${row('bee-dad','<span><b>Нажми на портрет внизу</b>, чтобы управлять другой пчёлкой. Остальные летят за тобой и бьют жуков только рядом с тобой.</span>')}
   ${row('bee-sis','<span><b>Летайте рядом.</b> Золотая ниточка между пчёлами: сила +30%.</span>')}
   ${row('queen','<span><b>Пчёлка упала?</b> Подлети к ней, и она встанет. Помощники тоже спасают друг друга.</span>')}
   ${row('bee-me','<span><b>Кнопка справа внизу: супер-удар.</b> Заряжается, когда побеждаешь жуков.</span>')}
